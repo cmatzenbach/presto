@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import DataTable, {createTheme} from 'react-data-table-component';
 
 import {
@@ -402,7 +402,7 @@ class RuntimeStatsList extends React.Component {
                         .values(this.props.stats)
                         .sort((m1, m2) => (m1.name.localeCompare(m2.name)))
                         .map((metric) =>
-                            <tr style={this.getExpandedStyle()}>
+                          <tr style={this.getExpandedStyle()} key={metric.name}>
                                 <td className="info-text">{metric.name}</td>
                                 <td className="info-text">{this.renderMetricValue(metric.unit, metric.sum)}</td>
                                 <td className="info-text">{formatCount(metric.count)}</td>
@@ -896,49 +896,44 @@ const TASK_FILTER = {
     },
 };
 
-export class QueryDetail extends React.Component {
+export const QueryDetail = () => {
+    const [state, setState] = useState({
+        query: null,
+        lastSnapshotStages: null,
 
-    constructor(props) {
-        super(props);
-        this.state = {
-            query: null,
-            lastSnapshotStages: null,
+        lastScheduledTime: 0,
+        lastCpuTime: 0,
+        lastRowInput: 0,
+        lastByteInput: 0,
 
-            lastScheduledTime: 0,
-            lastCpuTime: 0,
-            lastRowInput: 0,
-            lastByteInput: 0,
+        scheduledTimeRate: [],
+        cpuTimeRate: [],
+        rowInputRate: [],
+        byteInputRate: [],
 
-            scheduledTimeRate: [],
-            cpuTimeRate: [],
-            rowInputRate: [],
-            byteInputRate: [],
+        reservedMemory: [],
 
-            reservedMemory: [],
+        initialized: false,
+        ended: false,
 
-            initialized: false,
-            ended: false,
+        lastRefresh: null,
+        stageRefresh: true,
+    });
 
-            lastRefresh: null,
-            lastRender: null,
+    const timeoutId = useRef(null);
+    const lastRenderRef = useRef(null);
 
-            stageRefresh: true,
-        };
+    const formatStackTrace = (info) => {
+        return formatStackTraceHelper(info, [], "", "");
+    };
 
-        this.refreshLoop = this.refreshLoop.bind(this);
-    }
-
-    static formatStackTrace(info) {
-        return QueryDetail.formatStackTraceHelper(info, [], "", "");
-    }
-
-    static formatStackTraceHelper(info, parentStack, prefix, linePrefix) {
-        let s = linePrefix + prefix + QueryDetail.failureInfoToString(info) + "\n";
+    const formatStackTraceHelper = (info, parentStack, prefix, linePrefix) => {
+        let s = linePrefix + prefix + failureInfoToString(info) + "\n";
 
         if (info.stack) {
             let sharedStackFrames = 0;
             if (parentStack !== null) {
-                sharedStackFrames = QueryDetail.countSharedStackFrames(info.stack, parentStack);
+                sharedStackFrames = countSharedStackFrames(info.stack, parentStack);
             }
 
             for (let i = 0; i < info.stack.length - sharedStackFrames; i++) {
@@ -951,156 +946,170 @@ export class QueryDetail extends React.Component {
 
         if (info.suppressed) {
             for (let i = 0; i < info.suppressed.length; i++) {
-                s += QueryDetail.formatStackTraceHelper(info.suppressed[i], info.stack, "Suppressed: ", linePrefix + "\t");
+                s += formatStackTraceHelper(info.suppressed[i], info.stack, "Suppressed: ", linePrefix + "\t");
             }
         }
 
         if (info.cause) {
-            s += QueryDetail.formatStackTraceHelper(info.cause, info.stack, "Caused by: ", linePrefix);
+            s += formatStackTraceHelper(info.cause, info.stack, "Caused by: ", linePrefix);
         }
 
         return s;
-    }
+    };
 
-    static countSharedStackFrames(stack, parentStack) {
+    const countSharedStackFrames = (stack, parentStack) => {
         let n = 0;
         const minStackLength = Math.min(stack.length, parentStack.length);
         while (n < minStackLength && stack[stack.length - 1 - n] === parentStack[parentStack.length - 1 - n]) {
             n++;
         }
         return n;
-    }
+    };
 
-    static failureInfoToString(t) {
+    const failureInfoToString = (t) => {
         return (t.message !== null) ? (t.type + ": " + t.message) : t.type;
-    }
+    };
 
-    resetTimer() {
-        clearTimeout(this.timeoutId);
+    const resetTimer = () => {
+        clearTimeout(timeoutId.current);
         // stop refreshing when query finishes or fails
-        if (this.state.query === null || !this.state.ended) {
+        if (state.query === null || !state.ended) {
             // task.info-update-interval is set to 3 seconds by default
-            this.timeoutId = setTimeout(this.refreshLoop, 3000);
+            timeoutId.current = setTimeout(refreshLoop, 3000);
         }
-    }
+    };
 
-    static getQueryURL(id) {
+    const getQueryURL = (id) => {
         if (!id || typeof id !== 'string' || id.length === 0) {
             return "/v1/query/undefined";
         }
         const sanitizedId = id.replace(/[^a-z0-9_]/gi, '');
         return sanitizedId.length > 0 ? `/v1/query/${encodeURIComponent(sanitizedId)}` : "/v1/query/undefined";
-    }
+    };
 
 
-    refreshLoop() {
-        clearTimeout(this.timeoutId); // to stop multiple series of refreshLoop from going on simultaneously
+    const refreshLoop = () => {
+        clearTimeout(timeoutId.current); // to stop multiple series of refreshLoop from going on simultaneously
         const queryId = getFirstParameter(window.location.search);
 
-        $.get(QueryDetail.getQueryURL(queryId), function (query) {
-            let lastSnapshotStages = this.state.lastSnapshotStage;
-            if (this.state.stageRefresh) {
-                lastSnapshotStages = query.outputStage;
-            }
+        $.get(getQueryURL(queryId))
+            .done((query) => {
+                setState(prevState => {
+                    let lastSnapshotStages = prevState.lastSnapshotStage;
+                    if (prevState.stageRefresh) {
+                        lastSnapshotStages = query.outputStage;
+                    }
 
-            let lastRefresh = this.state.lastRefresh;
-            const lastScheduledTime = this.state.lastScheduledTime;
-            const lastCpuTime = this.state.lastCpuTime;
-            const lastRowInput = this.state.lastRowInput;
-            const lastByteInput = this.state.lastByteInput;
-            const alreadyEnded = this.state.ended;
-            const nowMillis = Date.now();
+                    let lastRefresh = prevState.lastRefresh;
+                    const lastScheduledTime = prevState.lastScheduledTime;
+                    const lastCpuTime = prevState.lastCpuTime;
+                    const lastRowInput = prevState.lastRowInput;
+                    const lastByteInput = prevState.lastByteInput;
+                    const alreadyEnded = prevState.ended;
+                    const nowMillis = Date.now();
 
-            this.setState({
-                query: query,
-                lastSnapshotStage: lastSnapshotStages,
+                    const newState = {
+                        ...prevState,
+                        query: query,
+                        lastSnapshotStage: lastSnapshotStages,
 
-                lastScheduledTime: parseDuration(query.queryStats.totalScheduledTime),
-                lastCpuTime: parseDuration(query.queryStats.totalCpuTime),
-                lastRowInput: query.queryStats.processedInputPositions,
-                lastByteInput: parseDataSize(query.queryStats.processedInputDataSize),
+                        lastScheduledTime: parseDuration(query.queryStats.totalScheduledTime),
+                        lastCpuTime: parseDuration(query.queryStats.totalCpuTime),
+                        lastRowInput: query.queryStats.processedInputPositions,
+                        lastByteInput: parseDataSize(query.queryStats.processedInputDataSize),
 
-                initialized: true,
-                ended: query.finalQueryInfo,
+                        initialized: true,
+                        ended: query.finalQueryInfo,
 
-                lastRefresh: nowMillis,
-            });
+                        lastRefresh: nowMillis,
+                    };
 
-            // i.e. don't show sparklines if we've already decided not to update or if we don't have one previous measurement
-            if (alreadyEnded || (lastRefresh === null && query.state === "RUNNING")) {
-                this.resetTimer();
-                return;
-            }
+                    // i.e. don't show sparklines if we've already decided not to update or if we don't have one previous measurement
+                    if (alreadyEnded || (lastRefresh === null && query.state === "RUNNING")) {
+                        resetTimer();
+                        return newState;
+                    }
 
-            if (lastRefresh === null) {
-                lastRefresh = nowMillis - parseDuration(query.queryStats.elapsedTime);
-            }
+                    if (lastRefresh === null) {
+                        lastRefresh = nowMillis - parseDuration(query.queryStats.elapsedTime);
+                    }
 
-            const elapsedSecsSinceLastRefresh = (nowMillis - lastRefresh) / 1000.0;
-            if (elapsedSecsSinceLastRefresh >= 0) {
-                const currentScheduledTimeRate = (parseDuration(query.queryStats.totalScheduledTime) - lastScheduledTime) / (elapsedSecsSinceLastRefresh * 1000);
-                const currentCpuTimeRate = (parseDuration(query.queryStats.totalCpuTime) - lastCpuTime) / (elapsedSecsSinceLastRefresh * 1000);
-                const currentRowInputRate = (query.queryStats.processedInputPositions - lastRowInput) / elapsedSecsSinceLastRefresh;
-                const currentByteInputRate = (parseDataSize(query.queryStats.processedInputDataSize) - lastByteInput) / elapsedSecsSinceLastRefresh;
-                this.setState({
-                    scheduledTimeRate: addToHistory(currentScheduledTimeRate, this.state.scheduledTimeRate),
-                    cpuTimeRate: addToHistory(currentCpuTimeRate, this.state.cpuTimeRate),
-                    rowInputRate: addToHistory(currentRowInputRate, this.state.rowInputRate),
-                    byteInputRate: addToHistory(currentByteInputRate, this.state.byteInputRate),
-                    reservedMemory: addToHistory(parseDataSize(query.queryStats.userMemoryReservation), this.state.reservedMemory),
+                    const elapsedSecsSinceLastRefresh = (nowMillis - lastRefresh) / 1000.0;
+                    if (elapsedSecsSinceLastRefresh >= 0) {
+                        const currentScheduledTimeRate = (parseDuration(query.queryStats.totalScheduledTime) - lastScheduledTime) / (elapsedSecsSinceLastRefresh * 1000);
+                        const currentCpuTimeRate = (parseDuration(query.queryStats.totalCpuTime) - lastCpuTime) / (elapsedSecsSinceLastRefresh * 1000);
+                        const currentRowInputRate = (query.queryStats.processedInputPositions - lastRowInput) / elapsedSecsSinceLastRefresh;
+                        const currentByteInputRate = (parseDataSize(query.queryStats.processedInputDataSize) - lastByteInput) / elapsedSecsSinceLastRefresh;
+                        
+                        newState.scheduledTimeRate = addToHistory(currentScheduledTimeRate, prevState.scheduledTimeRate);
+                        newState.cpuTimeRate = addToHistory(currentCpuTimeRate, prevState.cpuTimeRate);
+                        newState.rowInputRate = addToHistory(currentRowInputRate, prevState.rowInputRate);
+                        newState.byteInputRate = addToHistory(currentByteInputRate, prevState.byteInputRate);
+                        newState.reservedMemory = addToHistory(parseDataSize(query.queryStats.userMemoryReservation), prevState.reservedMemory);
+                    }
+                    
+                    resetTimer();
+                    return newState;
                 });
-            }
-            this.resetTimer();
-        }.bind(this))
+            })
             .fail(() => {
-                this.setState({
+                setState(prevState => ({
+                    ...prevState,
                     initialized: true,
-                });
-                this.resetTimer();
+                }));
+                resetTimer();
             });
-    }
+    };
 
-    handleStageRefreshClick() {
-        if (this.state.stageRefresh) {
-            this.setState({
+    const handleStageRefreshClick = () => {
+        if (state.stageRefresh) {
+            setState(prevState => ({
+                ...prevState,
                 stageRefresh: false,
-                lastSnapshotStages: this.state.query.outputStage,
-            });
+                lastSnapshotStages: prevState.query.outputStage,
+            }));
         }
         else {
-            this.setState({
+            setState(prevState => ({
+                ...prevState,
                 stageRefresh: true,
-            });
+            }));
         }
-    }
+    };
 
-    renderStageRefreshButton() {
-        if (this.state.stageRefresh) {
-            return <button className="btn btn-info live-button rounded-0" onClick={this.handleStageRefreshClick.bind(this)}>Auto-Refresh: On</button>
+    const renderStageRefreshButton = () => {
+        if (state.stageRefresh) {
+            return <button className="btn btn-info live-button rounded-0" onClick={handleStageRefreshClick}>Auto-Refresh: On</button>
         }
         else {
-            return <button className="btn btn-info live-button rounded-0" onClick={this.handleStageRefreshClick.bind(this)}>Auto-Refresh: Off</button>
+            return <button className="btn btn-info live-button rounded-0" onClick={handleStageRefreshClick}>Auto-Refresh: Off</button>
         }
-    }
+    };
 
-    componentDidMount() {
-        this.refreshLoop();
-    }
+    // componentDidMount equivalent
+    useEffect(() => {
+        refreshLoop();
+        
+        return () => {
+            clearTimeout(timeoutId.current);
+        };
+    }, []);
 
-    componentDidUpdate() {
+    // componentDidUpdate equivalent
+    useEffect(() => {
         // prevent multiple calls to componentDidUpdate (resulting from calls to setState or otherwise) within the refresh interval from re-rendering sparklines/charts
-        if (this.state.lastRender === null || (Date.now() - this.state.lastRender) >= 1000) {
+        if (lastRenderRef.current === null || (Date.now() - lastRenderRef.current) >= 1000) {
             const renderTimestamp = Date.now();
-            $('#scheduled-time-rate-sparkline').sparkline(this.state.scheduledTimeRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {
+            $('#scheduled-time-rate-sparkline').sparkline(state.scheduledTimeRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {
                 chartRangeMin: 0,
                 numberFormatter: precisionRound
             }));
-            $('#cpu-time-rate-sparkline').sparkline(this.state.cpuTimeRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {chartRangeMin: 0, numberFormatter: precisionRound}));
-            $('#row-input-rate-sparkline').sparkline(this.state.rowInputRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {numberFormatter: formatCount}));
-            $('#byte-input-rate-sparkline').sparkline(this.state.byteInputRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {numberFormatter: formatDataSize}));
-            $('#reserved-memory-sparkline').sparkline(this.state.reservedMemory, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {numberFormatter: formatDataSize}));
+            $('#cpu-time-rate-sparkline').sparkline(state.cpuTimeRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {chartRangeMin: 0, numberFormatter: precisionRound}));
+            $('#row-input-rate-sparkline').sparkline(state.rowInputRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {numberFormatter: formatCount}));
+            $('#byte-input-rate-sparkline').sparkline(state.byteInputRate, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {numberFormatter: formatDataSize}));
+            $('#reserved-memory-sparkline').sparkline(state.reservedMemory, $.extend({}, SMALL_SPARKLINE_PROPERTIES, {numberFormatter: formatDataSize}));
 
-            if (this.state.lastRender === null) {
+            if (lastRenderRef.current === null) {
                 $('#query').each((i, block) => {
                     hljs.highlightBlock(block);
                 });
@@ -1110,17 +1119,16 @@ export class QueryDetail extends React.Component {
                 });
             }
 
-            this.setState({
-                lastRender: renderTimestamp,
-            });
+            lastRenderRef.current = renderTimestamp;
         }
 
         $('[data-bs-toggle="tooltip"]')?.tooltip?.();
         new Clipboard('.copy-button');
-    }
+    }, [state.scheduledTimeRate, state.cpuTimeRate, state.rowInputRate, state.byteInputRate, state.reservedMemory]);
 
-    renderStages() {
-        if (this.state.lastSnapshotStage === null) {
+    const renderStages = () => {
+        // TODO: lastSnapshotStage does not exist in state...should this be lastSnapshotStages?
+        if (state.lastSnapshotStage === null) {
             return;
         }
 
@@ -1135,7 +1143,7 @@ export class QueryDetail extends React.Component {
                             <tbody>
                             <tr>
                                 <td>
-                                    {this.renderStageRefreshButton()}
+                                    {renderStageRefreshButton()}
                                 </td>
                             </tr>
                             </tbody>
@@ -1144,15 +1152,15 @@ export class QueryDetail extends React.Component {
                 </div>
                 <div className="row">
                     <div className="col-12">
-                        <StageList key={this.state.query.queryId} outputStage={this.state.lastSnapshotStage}/>
+                        <StageList key={state.query.queryId} outputStage={state.lastSnapshotStage}/>
                     </div>
                 </div>
             </div>
         );
-    }
+    };
 
-    renderPreparedQuery() {
-        const query = this.state.query;
+    const renderPreparedQuery = () => {
+        const query = state.query;
         if (!query.hasOwnProperty('preparedQuery') || query.preparedQuery === null) {
             return;
         }
@@ -1172,16 +1180,16 @@ export class QueryDetail extends React.Component {
                 </pre>
             </div>
         );
-    }
+    };
 
-    renderSessionProperties() {
-        const query = this.state.query;
+    const renderSessionProperties = () => {
+        const query = state.query;
 
         const properties = [];
         for (let property in query.session.systemProperties) {
             if (query.session.systemProperties.hasOwnProperty(property)) {
                 properties.push(
-                    <span>- {property + "=" + query.session.systemProperties[property]} <br/></span>
+                    <span key={`system-${property}`}>- {property + "=" + query.session.systemProperties[property]} <br/></span>
                 );
             }
         }
@@ -1191,7 +1199,7 @@ export class QueryDetail extends React.Component {
                 for (let property in query.session.catalogProperties[catalog]) {
                     if (query.session.catalogProperties[catalog].hasOwnProperty(property)) {
                         properties.push(
-                            <span>- {catalog + "." + property + "=" + query.session.catalogProperties[catalog][property]} <br/></span>
+                            <span key={`catalog-${catalog}-${property}`}>- {catalog + "." + property + "=" + query.session.catalogProperties[catalog][property]} <br/></span>
                         );
                     }
                 }
@@ -1199,10 +1207,10 @@ export class QueryDetail extends React.Component {
         }
 
         return properties;
-    }
+    };
 
-    renderResourceEstimates() {
-        const query = this.state.query;
+    const renderResourceEstimates = () => {
+        const query = state.query;
         const estimates = query.session.resourceEstimates;
         const renderedEstimates = [];
 
@@ -1215,16 +1223,16 @@ export class QueryDetail extends React.Component {
                 }
 
                 renderedEstimates.push(
-                    <span>- {snakeCased + "=" + query.session.resourceEstimates[resource]} <br/></span>
+                    <span key={resource}>- {snakeCased + "=" + query.session.resourceEstimates[resource]} <br/></span>
                 )
             }
         }
 
         return renderedEstimates;
-    }
+    };
 
-    renderWarningInfo() {
-        const query = this.state.query;
+    const renderWarningInfo = () => {
+        const query = state.query;
         if (query.warnings.length > 0) {
             return (
                 <div className="row">
@@ -1232,8 +1240,9 @@ export class QueryDetail extends React.Component {
                         <h3>Warnings</h3>
                         <hr className="h3-hr"/>
                         <table className="table" id="warnings-table">
-                            {query.warnings.map((warning) =>
-                                <tr>
+                            <tbody>
+                            {query.warnings.map((warning, index) =>
+                                <tr key={`warning-${index}`}>
                                     <td>
                                         {warning.warningCode.name}
                                     </td>
@@ -1242,6 +1251,7 @@ export class QueryDetail extends React.Component {
                                     </td>
                                 </tr>
                             )}
+                            </tbody>
                         </table>
                     </div>
                 </div>
@@ -1250,10 +1260,10 @@ export class QueryDetail extends React.Component {
         else {
             return null;
         }
-    }
+    };
 
-    renderRuntimeStats() {
-        const query = this.state.query;
+    const renderRuntimeStats = () => {
+        const query = state.query;
         if (query.queryStats.runtimeStats === undefined) {
             return null;
         }
@@ -1269,10 +1279,10 @@ export class QueryDetail extends React.Component {
                 </div>
             </div>
         );
-    }
+    };
 
-    renderFailureInfo() {
-        const query = this.state.query;
+    const renderFailureInfo = () => {
+        const query = state.query;
         if (query.failureInfo) {
             return (
                 <div className="row">
@@ -1294,7 +1304,7 @@ export class QueryDetail extends React.Component {
                                     Error Code
                                 </td>
                                 <td className="info-text">
-                                    {query.errorCode.name + " (" + this.state.query.errorCode.code + ")"}
+                                    {query.errorCode.name + " (" + state.query.errorCode.code + ")"}
                                 </td>
                             </tr>
                             <tr>
@@ -1307,7 +1317,7 @@ export class QueryDetail extends React.Component {
                                 </td>
                                 <td className="info-text">
                                         <pre id="stack-trace">
-                                            {QueryDetail.formatStackTrace(query.failureInfo)}
+                                            {formatStackTrace(query.failureInfo)}
                                         </pre>
                                 </td>
                             </tr>
@@ -1320,112 +1330,111 @@ export class QueryDetail extends React.Component {
         else {
             return "";
         }
+    };
+
+    const query = state.query;
+
+    if (query === null || state.initialized === false) {
+        let label = (<div className="loader">Loading...</div>);
+        if (state.initialized) {
+            label = "Query not found";
+        }
+        return (
+            <div className="row error-message">
+                <div className="col-12"><h4>{label}</h4></div>
+            </div>
+        );
     }
 
-    render() {
-        const query = this.state.query;
-
-        if (query === null || this.state.initialized === false) {
-            let label = (<div className="loader">Loading...</div>);
-            if (this.state.initialized) {
-                label = "Query not found";
-            }
-            return (
-                <div className="row error-message">
-                    <div className="col-12"><h4>{label}</h4></div>
+    return (
+        <div>
+            <QueryHeader query={query}/>
+            <div className="row mt-3">
+                <div className="col-6">
+                    <h3>Session</h3>
+                    <hr className="h3-hr"/>
+                    <table className="table">
+                        <tbody>
+                        <tr>
+                            <td className="info-title">
+                                User
+                            </td>
+                            <td className="info-text wrap-text">
+                                <span id="query-user">{query.session.user}</span>
+                                &nbsp;&nbsp;
+                                <a href="#" className="copy-button" data-clipboard-target="#query-user" data-bs-toggle="tooltip" data-bs-placement="right"
+                                   title="Copy to clipboard">
+                                    <span className="bi bi-copy" aria-hidden="true" alt="Copy to clipboard"/>
+                                </a>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="info-title">
+                                Principal
+                            </td>
+                            <td className="info-text wrap-text">
+                                {query.session.principal}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="info-title">
+                                Source
+                            </td>
+                            <td className="info-text wrap-text">
+                                {query.session.source}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="info-title">
+                                Catalog
+                            </td>
+                            <td className="info-text">
+                                {query.session.catalog}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="info-title">
+                                Schema
+                            </td>
+                            <td className="info-text">
+                                {query.session.schema}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="info-title">
+                                Client Address
+                            </td>
+                            <td className="info-text">
+                                {query.session.remoteUserAddress}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="info-title">
+                                Client Tags
+                            </td>
+                            <td className="info-text">
+                                {query.session.clientTags.join(", ")}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="info-title">
+                                Session Properties
+                            </td>
+                            <td className="info-text wrap-text">
+                                {renderSessionProperties()}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td className="info-title">
+                                Resource Estimates
+                            </td>
+                            <td className="info-text wrap-text">
+                                {renderResourceEstimates()}
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
                 </div>
-            );
-        }
-
-        return (
-            <div>
-                <QueryHeader query={query}/>
-                <div className="row mt-3">
-                    <div className="col-6">
-                        <h3>Session</h3>
-                        <hr className="h3-hr"/>
-                        <table className="table">
-                            <tbody>
-                            <tr>
-                                <td className="info-title">
-                                    User
-                                </td>
-                                <td className="info-text wrap-text">
-                                    <span id="query-user">{query.session.user}</span>
-                                    &nbsp;&nbsp;
-                                    <a href="#" className="copy-button" data-clipboard-target="#query-user" data-bs-toggle="tooltip" data-bs-placement="right"
-                                       title="Copy to clipboard">
-                                        <span className="bi bi-copy" aria-hidden="true" alt="Copy to clipboard"/>
-                                    </a>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
-                                    Principal
-                                </td>
-                                <td className="info-text wrap-text">
-                                    {query.session.principal}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
-                                    Source
-                                </td>
-                                <td className="info-text wrap-text">
-                                    {query.session.source}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
-                                    Catalog
-                                </td>
-                                <td className="info-text">
-                                    {query.session.catalog}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
-                                    Schema
-                                </td>
-                                <td className="info-text">
-                                    {query.session.schema}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
-                                    Client Address
-                                </td>
-                                <td className="info-text">
-                                    {query.session.remoteUserAddress}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
-                                    Client Tags
-                                </td>
-                                <td className="info-text">
-                                    {query.session.clientTags.join(", ")}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
-                                    Session Properties
-                                </td>
-                                <td className="info-text wrap-text">
-                                    {this.renderSessionProperties()}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td className="info-title">
-                                    Resource Estimates
-                                </td>
-                                <td className="info-text wrap-text">
-                                    {this.renderResourceEstimates()}
-                                </td>
-                            </tr>
-                            </tbody>
-                        </table>
-                    </div>
                     <div className="col-6">
                         <h3>Execution</h3>
                         <hr className="h3-hr"/>
@@ -1703,7 +1712,7 @@ export class QueryDetail extends React.Component {
                                     </tr>
                                     <tr className="tr-noborder">
                                         <td className="info-sparkline-text">
-                                            {formatCount(this.state.cpuTimeRate[this.state.cpuTimeRate.length - 1])}
+                                            {formatCount(state.cpuTimeRate[state.cpuTimeRate.length - 1])}
                                         </td>
                                     </tr>
                                     <tr>
@@ -1718,7 +1727,7 @@ export class QueryDetail extends React.Component {
                                     </tr>
                                     <tr className="tr-noborder">
                                         <td className="info-sparkline-text">
-                                            {formatCount(this.state.scheduledTimeRate[this.state.scheduledTimeRate.length - 1])}
+                                            {formatCount(state.scheduledTimeRate[state.scheduledTimeRate.length - 1])}
                                         </td>
                                     </tr>
                                     <tr>
@@ -1733,7 +1742,7 @@ export class QueryDetail extends React.Component {
                                     </tr>
                                     <tr className="tr-noborder">
                                         <td className="info-sparkline-text">
-                                            {formatCount(this.state.rowInputRate[this.state.rowInputRate.length - 1])}
+                                            {formatCount(state.rowInputRate[state.rowInputRate.length - 1])}
                                         </td>
                                     </tr>
                                     <tr>
@@ -1748,7 +1757,7 @@ export class QueryDetail extends React.Component {
                                     </tr>
                                     <tr className="tr-noborder">
                                         <td className="info-sparkline-text">
-                                            {formatDataSize(this.state.byteInputRate[this.state.byteInputRate.length - 1])}
+                                            {formatDataSize(state.byteInputRate[state.byteInputRate.length - 1])}
                                         </td>
                                     </tr>
                                     <tr>
@@ -1763,7 +1772,7 @@ export class QueryDetail extends React.Component {
                                     </tr>
                                     <tr className="tr-noborder">
                                         <td className="info-sparkline-text">
-                                            {formatDataSize(this.state.reservedMemory[this.state.reservedMemory.length - 1])}
+                                            {formatDataSize(state.reservedMemory[state.reservedMemory.length - 1])}
                                         </td>
                                     </tr>
                                     </tbody>
@@ -1772,9 +1781,9 @@ export class QueryDetail extends React.Component {
                         </div>
                     </div>
                 </div>
-                {this.renderRuntimeStats()}
-                {this.renderWarningInfo()}
-                {this.renderFailureInfo()}
+                {renderRuntimeStats()}
+                {renderWarningInfo()}
+                {renderFailureInfo()}
                 <div className="row">
                     <div className="col-12">
                         <h3>
@@ -1789,13 +1798,12 @@ export class QueryDetail extends React.Component {
                             </code>
                         </pre>
                     </div>
-                    {this.renderPreparedQuery()}
+                    {renderPreparedQuery()}
                 </div>
-                {this.renderStages()}
+                {renderStages()}
             </div>
         );
-    }
-}
+};
 
 export default QueryDetail;
 
