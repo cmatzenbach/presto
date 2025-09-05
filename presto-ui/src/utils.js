@@ -484,3 +484,16 @@ export function removeNodeTypePackage(nodeType: string): string {
     const classEndIndex = nodeType.lastIndexOf(".");
     return nodeType.substr(classEndIndex + 1);
 }
+
+// Debounce utility function
+export function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
