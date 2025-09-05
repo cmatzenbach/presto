@@ -19,6 +19,7 @@ import SqlBaseParser from '../sql-parser/SqlBaseParser.js';
 import SqlBaseListener from '../sql-parser/SqlBaseListener.js';
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs/components/prism-core';
+import { debounce } from '../utils.js';
 import 'prismjs/components/prism-sql';
 // Remove primsjs theme to avoid loading error with dynamic import
 // move import 'prismjs/themes/prism.css' to sql-client.jsx
@@ -114,7 +115,9 @@ function SQLDropDown({ text, values = [], onSelect, selected }) {
     );
 }
 
-function sqlCleaning(sql, errorHandler) {
+const DEFAULT_SQL_LIMIT_VALUE = 100
+
+function sqlCleaning(sql, errorHandler, maxLimit = DEFAULT_SQL_LIMIT_VALUE, disableLimit) {
     const lastSemicolon = /(\s*;\s*)$/m;
     const limitRE = /limit\s+(\d+|all)$/im;
     const fetchFirstRE = /fetch\s+first\s+(\d+)\s+rows\s+only$/im;
@@ -131,13 +134,13 @@ function sqlCleaning(sql, errorHandler) {
             errorHandler(syntaxError.error);
             return false;
         }
-        if (selectDetector.isSelect) {
-            if (typeof (selectDetector.limit) === 'string' || selectDetector.limit > 100) {
-                cleanSql= cleanSql.replace(limitRE, 'limit 100');
-            } else if (selectDetector.fetchFirstNRows > 100) {
-                cleanSql = cleanSql.replace(fetchFirstRE, 'fetch first 100 rows only');
+        if (selectDetector.isSelect && !disableLimit) {
+            if (typeof (selectDetector.limit) === 'string' || selectDetector.limit > maxLimit) {
+                cleanSql= cleanSql.replace(limitRE, `limit ${maxLimit}`);
+            } else if (selectDetector.fetchFirstNRows > maxLimit) {
+                cleanSql = cleanSql.replace(fetchFirstRE, `fetch first ${maxLimit} rows only`);
             } else if (selectDetector.limit === -1 && selectDetector.fetchFirstNRows === -1) {
-                cleanSql += ' limit 100';
+                cleanSql += ` limit ${maxLimit}`;
             }
         }
         return cleanSql
@@ -156,10 +159,12 @@ export function SQLInput({ handleSQL, show, enabled, initialSQL, errorHandler })
     const [schema, setSchema] = React.useState(undefined);
     const [catalogs, setCatalogs] = React.useState([]);
     const [schemas, setSchemas] = React.useState([]);
+    const [limit, setLimit] = React.useState(DEFAULT_SQL_LIMIT_VALUE);
+    const [disableLimit, setDisableLimit] = React.useState(false);
     
     const checkValue = () => {
         if (sql.length > 0) {
-            let cleanSql = sqlCleaning(sql, errorHandler);
+            let cleanSql = sqlCleaning(sql, errorHandler, limit, disableLimit);
             if (cleanSql) {
                 setSql(cleanSql);
                 handleSQL(cleanSql, catalog, schema);
@@ -186,6 +191,29 @@ export function SQLInput({ handleSQL, show, enabled, initialSQL, errorHandler })
         setSchema(schema);
     }
 
+    const changeLimit = (newLimit) => {
+        // allow users to clear out default limit
+        if (newLimit === '') {
+            setLimit('');
+            return;
+        }
+        const limitValue = parseInt(newLimit, 10);
+        if (!isNaN(limitValue) && limitValue > 0) {
+            setLimit(limitValue);
+        }
+    };
+
+    const handleLimitBlur = () => {
+        if (limit === '' || limit < 1) {
+            setLimit(DEFAULT_SQL_LIMIT_VALUE);
+        }
+    };
+
+    const debouncedChangeLimit = React.useMemo(
+        () => debounce(changeLimit, 100),
+        []
+    );
+
     React.useEffect(() => {
         //fetch catalogs:
         async function getCatalogs() {
@@ -210,7 +238,42 @@ export function SQLInput({ handleSQL, show, enabled, initialSQL, errorHandler })
                         &nbsp;
                         <SQLDropDown text='Schema' values={schemas} onSelect={schemaSelected} selected={schema}/>
                         &nbsp;
-                        <div className="btn-group">
+                        <div className="input-group-prepend ms-auto d-flex">
+                            <span
+                              for="limit"
+                              className="input-group-text rounded-0 bg-white text-dark h-100"
+                              style={{ fontSize:"12px", borderColor:"#454A58" }}
+                            >
+                                Limit
+                            </span>
+                            <input 
+                                type="number" 
+                                name="limit"
+                                className="form-control" 
+                                style={{ 
+                                    width: "80px", 
+                                    backgroundColor: disableLimit ? "#f6f6f6" : "white", 
+                                    color: disableLimit ? "#999" : "black", 
+                                    borderRadius: "0",
+                                    appearance: "textfield",
+                                    MozAppearance: "textfield",
+                                    WebkitAppearance: "none"
+                                }}
+                                value={limit} 
+                                min="1"
+                                onChange={(e) => debouncedChangeLimit(e.target.value)}
+                                onBlur={handleLimitBlur}
+                                placeholder={DEFAULT_SQL_LIMIT_VALUE}
+                                disabled={disableLimit}
+                            />
+                            &nbsp;
+                            <div className="ms-3 d-flex align-items-center gap-1">
+                                <input type="checkbox" value={disableLimit} onChange={(e) => setDisableLimit(e.target.checked)} />
+                                <span>Disable Limit</span>
+                            </div>
+                        </div>
+                        &nbsp;
+                        <div className="btn-group" style={{ marginLeft: "auto" }}>
                             <button className={clsx('btn', 'btn-success', !enabled && 'disabled')} type="button" onClick={checkValue}>Run</button>
                         </div>
                     </div>
