@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import antlr4 from 'antlr4';
 import SqlBaseLexer from '../sql-parser/SqlBaseLexer.js';
 import SqlBaseParser from '../sql-parser/SqlBaseParser.js';
@@ -229,6 +229,11 @@ export function SQLInput({ handleSQL, show, enabled, initialSQL, errorHandler })
         getCatalogs();
     }, [initialSQL]);
 
+    useEffect(() => {
+        //$FlowFixMe
+        $('[data-bs-toggle="tooltip"]')?.tooltip?.()
+    }, [])
+
     return (
         <div className={clsx(!show && 'visually-hidden')}>
             <div className="row">
@@ -270,6 +275,14 @@ export function SQLInput({ handleSQL, show, enabled, initialSQL, errorHandler })
                             <div className="ms-3 d-flex align-items-center gap-1">
                                 <input type="checkbox" value={disableLimit} onChange={(e) => setDisableLimit(e.target.checked)} />
                                 <span>Disable Limit</span>
+                                <i 
+                                    className="bi bi-info-circle text-muted"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-trigger="hover focus"
+                                    data-bs-placement="top"
+                                    title="Warning: Disabling the automatically-added LIMIT clause may result in very large result sets that could impact performance or cause browser slowdown. Use with caution on large datasets."
+                                    style={{ cursor: "pointer", fontSize: "14px" }}
+                                ></i>
                             </div>
                         </div>
                         &nbsp;
