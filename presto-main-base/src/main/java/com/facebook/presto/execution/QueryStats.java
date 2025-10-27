@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.execution;
 
+import com.facebook.airlift.units.DataSize;
+import com.facebook.airlift.units.Duration;
 import com.facebook.presto.common.RuntimeStats;
 import com.facebook.presto.operator.BlockedReason;
 import com.facebook.presto.operator.ExchangeOperator;
@@ -27,11 +29,8 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import io.airlift.units.DataSize;
-import io.airlift.units.Duration;
+import jakarta.annotation.Nullable;
 import org.joda.time.DateTime;
-
-import javax.annotation.Nullable;
 
 import java.util.HashSet;
 import java.util.List;
@@ -39,10 +38,10 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
 
+import static com.facebook.airlift.units.DataSize.succinctBytes;
+import static com.facebook.airlift.units.Duration.succinctDuration;
 import static com.facebook.presto.util.DateTimeUtils.toTimeStampInMillis;
 import static com.google.common.base.Preconditions.checkArgument;
-import static io.airlift.units.DataSize.succinctBytes;
-import static io.airlift.units.Duration.succinctDuration;
 import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -597,7 +596,7 @@ public class QueryStats
                 for (OperatorStats operatorStats : stageExecutionStats.getOperatorSummaries()) {
                     // NOTE: we need to literally check each operator type to tell if the source is from table input or shuffled input. A stage can have input from both types of source.
                     String operatorType = operatorStats.getOperatorType();
-                    if (operatorType.equals(ExchangeOperator.class.getSimpleName()) || operatorType.equals(MergeOperator.class.getSimpleName())) {
+                    if (operatorType.equals(ExchangeOperator.class.getSimpleName()) || operatorType.equals(MergeOperator.class.getSimpleName()) || operatorType.equals("PrestoSparkRemoteSourceOperator") || operatorType.equals("ShuffleRead")) {
                         shuffledPositions += operatorStats.getRawInputPositions();
                         shuffledDataSize += operatorStats.getRawInputDataSizeInBytes();
                     }

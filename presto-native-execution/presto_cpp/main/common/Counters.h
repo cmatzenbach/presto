@@ -51,6 +51,13 @@ constexpr folly::StringPiece kCounterExchangeRequestDuration{
     "presto_cpp.exchange.request.duration"};
 constexpr folly::StringPiece kCounterExchangeRequestNumTries{
     "presto_cpp.exchange.request.num_tries"};
+constexpr folly::StringPiece kCounterExchangeRequestPageSize{
+    "presto_cpp.exchange.request.page_size"};
+
+constexpr folly::StringPiece kCounterExchangeGetDataSizeDuration{
+    "presto_cpp.exchange.get_data_size.duration"};
+constexpr folly::StringPiece kCounterExchangeGetDataSizeNumTries{
+    "presto_cpp.exchange.get_data_size.num_tries"};
 
 constexpr folly::StringPiece kCounterNumQueryContexts{
     "presto_cpp.num_query_contexts"};
@@ -198,9 +205,9 @@ constexpr std::string_view kCounterThreadPoolMaxIdleTimeNsFormat{
 
 /// ================== EVB Counters ====================
 constexpr folly::StringPiece kCounterExchangeIoEvbViolation{
-  "presto_cpp.exchange_io_evb_violation_count"};
+    "presto_cpp.exchange_io_evb_violation_count"};
 constexpr folly::StringPiece kCounterHttpServerIoEvbViolation{
-  "presto_cpp.http_server_io_evb_violation_count"};
+    "presto_cpp.http_server_io_evb_violation_count"};
 
 /// ================== Memory Pushback Counters =================
 

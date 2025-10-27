@@ -165,8 +165,9 @@ HttpResponse::nextAllocationSize(uint64_t dataLength) const {
       minAllocSize,
       std::min<size_t>(
           maxResponseAllocBytes_,
-          velox::bits::nextPowerOfTwo(velox::bits::roundUp(
-              dataLength + bodyChainBytes_, minResponseAllocBytes_))));
+          velox::bits::nextPowerOfTwo(
+              velox::bits::roundUp(
+                  dataLength + bodyChainBytes_, minResponseAllocBytes_))));
 }
 
 std::string HttpResponse::dumpBodyChain() const {
@@ -197,10 +198,7 @@ class ResponseHandler : public proxygen::HTTPTransactionHandler {
   folly::SemiFuture<std::unique_ptr<HttpResponse>> initialize(
       std::shared_ptr<ResponseHandler> self) {
     self_ = self;
-    auto [promise, future] =
-        folly::makePromiseContract<std::unique_ptr<HttpResponse>>();
-    promise_ = std::move(promise);
-    return std::move(future);
+    return promise_.getSemiFuture();
   }
 
   void setTransaction(proxygen::HTTPTransaction* /* txn */) noexcept override {}
@@ -560,8 +558,10 @@ void RequestBuilder::addJwtIfConfigured() {
     auto secretHash = std::vector<uint8_t>(SHA256_DIGEST_LENGTH);
     folly::ssl::OpenSSLHash::sha256(
         folly::range(secretHash),
-        folly::ByteRange(folly::StringPiece(
-            SystemConfig::instance()->internalCommunicationSharedSecret())));
+        folly::ByteRange(
+            folly::StringPiece(
+                SystemConfig::instance()
+                    ->internalCommunicationSharedSecret())));
 
     const auto time = std::chrono::system_clock::now();
     const auto token =
@@ -573,9 +573,10 @@ void RequestBuilder::addJwtIfConfigured() {
                 std::chrono::seconds{
                     SystemConfig::instance()
                         ->internalCommunicationJwtExpirationSeconds()})
-            .sign(jwt::algorithm::hs256{std::string(
-                reinterpret_cast<char*>(secretHash.data()),
-                secretHash.size())});
+            .sign(
+                jwt::algorithm::hs256{std::string(
+                    reinterpret_cast<char*>(secretHash.data()),
+                    secretHash.size())});
     header(kPrestoInternalBearer, token);
   }
 #endif // PRESTO_ENABLE_JWT

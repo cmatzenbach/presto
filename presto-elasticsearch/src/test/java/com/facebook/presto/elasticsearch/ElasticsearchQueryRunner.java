@@ -31,9 +31,9 @@ import org.elasticsearch.client.RestHighLevelClient;
 import java.util.Map;
 
 import static com.facebook.airlift.testing.Closeables.closeAllSuppress;
+import static com.facebook.airlift.units.Duration.nanosSince;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
 import static com.facebook.presto.tpch.TpchMetadata.TINY_SCHEMA_NAME;
-import static io.airlift.units.Duration.nanosSince;
 import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -95,21 +95,23 @@ public final class ElasticsearchQueryRunner
             Map<String, String> extraConnectorProperties)
     {
         queryRunner.installPlugin(new ElasticsearchPlugin(factory));
-        Map<String, String> config = ImmutableMap.<String, String>builder()
+        ImmutableMap.Builder<String, String> config = ImmutableMap.<String, String>builder()
                 .put("elasticsearch.host", address.getHost())
                 .put("elasticsearch.port", Integer.toString(address.getPort()))
                 // Node discovery relies on the publish_address exposed via the Elasticseach API
                 // This doesn't work well within a docker environment that maps ES's port to a random public port
                 .put("elasticsearch.ignore-publish-address", "true")
-                .put("elasticsearch.default-schema-name", TPCH_SCHEMA)
                 .put("elasticsearch.scroll-size", "1000")
                 .put("elasticsearch.scroll-timeout", "1m")
                 .put("elasticsearch.max-hits", "1000000")
                 .put("elasticsearch.request-timeout", "2m")
-                .putAll(extraConnectorProperties)
-                .build();
+                .putAll(extraConnectorProperties);
+        if (!extraConnectorProperties.containsKey("elasticsearch.default-schema-name")) {
+            config.put("elasticsearch.default-schema-name", TPCH_SCHEMA);
+        }
+        Map<String, String> newconfig = config.build();
 
-        queryRunner.createCatalog("elasticsearch", "elasticsearch", config);
+        queryRunner.createCatalog("elasticsearch", "elasticsearch", newconfig);
     }
 
     private static void loadTpchTopic(RestHighLevelClient client, TestingPrestoClient prestoClient, TpchTable<?> table)

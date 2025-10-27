@@ -34,14 +34,14 @@ class attrdict(dict):
 
 
 def preprocess(file_path, output_temp_path):
-    with open(file_path, 'r') as file:
+    with open(file_path, "r") as file:
         lines = file.readlines()
     modified_lines = []
     for line in lines:
-        modified_line = re.sub(r'\s*,*\s*drift\.recursive_reference=true\s*', '', line)
-        modified_line = re.sub(r'\(\s*\)$', '', modified_line)
+        modified_line = re.sub(r"\s*,*\s*drift\.recursive_reference=true\s*", "", line)
+        modified_line = re.sub(r"\(\s*\)$", "", modified_line)
         modified_lines.append(modified_line)
-    with open(output_temp_path, 'w') as file:
+    with open(output_temp_path, "w") as file:
         file.writelines(modified_lines)
 
 
@@ -86,9 +86,13 @@ def enum(n):
 
 def struct(n):
     v = {}
-    v["struct"] = True
     v["class_name"] = n.name.value
     v["fields"] = []
+    if n.union:
+        v["union"] = True
+    else:
+        v["struct"] = True
+
     for field in n.fields:
         v["fields"].append(
             dict(
